@@ -110,6 +110,16 @@ class Market:
         risk = [round(if_yes[i] + sum(if_no[0:i]) + sum(if_no[i + 1:]), 3) for i in range(len(prices))]
         return risk
 
+    def _calc_risk_bin(self, bin):
+        spread = []
+        for i, contract in enumerate(self.contracts):
+            if contract.best_no.quantity != 0 and i != bin:
+                spread += [1]
+            else:
+                spread += [0]
+        risk = self._calc_risk(spread)
+        return 1 - risk[bin]
+
     def _potential_profit(self, spread):
         return min(self._calc_risk(spread))
 
