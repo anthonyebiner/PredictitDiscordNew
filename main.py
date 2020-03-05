@@ -5,29 +5,44 @@ import auths
 import threading
 import time
 import discord
+import numpy as np
 from fuzzywuzzy import fuzz
 
 VERBATIM = False
 
+def helper(func):
+  return func(1)
 
-def calc(shares: list, prices: list):
-    share_value = [shares[i] * prices[i] for i in range(len(prices))]
-    if_no = [round((shares[i] - share_value[i]) - 0.1 * (shares[i] - share_value[i]), 3) for i in
-             range(len(prices))]
-    if_yes = [-(share_value[i]) for i in range(len(prices))]
-    risk = [round(if_yes[i] + sum(if_no[0:i]) + sum(if_no[i + 1:]), 3) for i in range(len(prices))]
-    return risk
+def calc(num_shares: list, prices: list):
+  #TODO replace at source, and adjust type annotation
+
+    num_shares = np.array(num_shares)
+    prices = np.array(prices)
+
+
+    investments =  num_shares * prices
+    
+    #profit when contract resolves to No
+    profits = num_shares * (1.00 - prices)
+    adj_profits = np.round(0.9 * profits, 3)
+    
+    #value of each position if the outcome is No
+    values = adj_profits + investments
+
+    #risks[i] = sum(adj_profits[j] for j != i)) - cost[i]
+    risks = np.round(np.sum(adj_profits) - values, 3) 
+    #(amount needed to hold the given spread of positions )
+
+    return risks
+    #TODO: change calc to risk, calc_risk to neg_risk, replace calc_profit with min(risks)
+
+    
 
 
 def calc_risk(shares: list, prices: list, bin: int) -> float:
-    """
-    Calculate the profit of a spread of purchase amounts and no prices
-    :param shares: list of number of shares to buy for each contract
-    :param prices: list of price of each contract
-    :return: dollar profit amount
-    """
-    risk = calc(shares, prices)
-    return 1 - risk[bin]
+   
+    risks = calc(shares, prices)
+    return 1 - risks[bin]
 
 
 def calc_profit(shares: list, prices: list) -> float:
@@ -37,8 +52,8 @@ def calc_profit(shares: list, prices: list) -> float:
     :param prices: list of price of each contract
     :return: dollar profit amount
     """
-    risk = calc(shares, prices)
-    profit = min(risk)
+    risks = calc(shares, prices)
+    profit = min(risks)
     return profit
 
 
