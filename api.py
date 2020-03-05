@@ -202,10 +202,12 @@ class PredictIt:
                 most_matches = matches
         return best_diff_id
 
-    def get_market(self, market_id=None, market_str=None):
-        assert market_id or market_str
-        if market_str:
-            market_id = self._get_market_id(market_str)
+    def get_market(self, market):
+        try:
+            int(market)
+            market_id = market
+        except ValueError:
+            market_id = self._get_market_id(market)
         markets = self.get_markets()
         if market_id:
             for market in markets:
@@ -214,10 +216,11 @@ class PredictIt:
 
 
 class Discord:
-    def __init__(self, pi_api):
+    def __init__(self, pi_api: PredictIt):
         self.pi_api = pi_api
 
-    def orderbook(self):
+    def orderbook(self, market):
+        market = self.pi_api.get_market(market)
         pass
 
     def risk(self):
