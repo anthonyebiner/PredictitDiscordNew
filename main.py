@@ -1,33 +1,36 @@
 import math
 import re
 import requests
-import auths
 import threading
 import time
-import discord
+import numpy as np
 from fuzzywuzzy import fuzz
 
 VERBATIM = False
 
 
-def calc(shares: list, prices: list):
-    share_value = [shares[i] * prices[i] for i in range(len(prices))]
-    if_no = [round((shares[i] - share_value[i]) - 0.1 * (shares[i] - share_value[i]), 3) for i in
-             range(len(prices))]
-    if_yes = [-(share_value[i]) for i in range(len(prices))]
-    risk = [round(if_yes[i] + sum(if_no[0:i]) + sum(if_no[i + 1:]), 3) for i in range(len(prices))]
-    return risk
+def risk(num_shares: list, prices: list):
+  #TODO replace at source, and adjust type annotation
+
+    num_shares = np.array(num_shares)
+    prices = np.array(prices)
 
 
-def calc_risk(shares: list, prices: list, bin: int) -> float:
-    """
-    Calculate the profit of a spread of purchase amounts and no prices
-    :param shares: list of number of shares to buy for each contract
-    :param prices: list of price of each contract
-    :return: dollar profit amount
-    """
-    risk = calc(shares, prices)
-    return 1 - risk[bin]
+    investments =  num_shares * prices
+    
+    #profit when contract resolves to No
+    profits = num_shares * (1.00 - prices)
+    adj_profits = np.round(0.9 * profits, 3)
+    
+    #value of each position if the outcome is No
+    values = adj_profits + investments
+
+    #risks[i] = sum(adj_profits[j] for j != i)) - cost[i]
+    risks = np.round(np.sum(adj_profits) - values, 3) 
+    #(amount needed to hold the given spread of positions )
+
+    return risks
+    #TODO: replace calc_profit with min(risks)
 
 
 def calc_profit(shares: list, prices: list) -> float:
@@ -37,8 +40,8 @@ def calc_profit(shares: list, prices: list) -> float:
     :param prices: list of price of each contract
     :return: dollar profit amount
     """
-    risk = calc(shares, prices)
-    profit = min(risk)
+    risks = risk(shares, prices)
+    profit = min(risks)
     return profit
 
 
@@ -238,21 +241,17 @@ class Api:
                 bins[name]['no_cost'] = 1
         return bins
 
-    def get_all_short(self, bins):
+    def get_no_prices(self, bins):
         short = []
         for name, bin in bins.items():
             short.append(bin['no_cost'])
         return short
 
-    def get_all_long(self, bins):
+    def get_yes_prices(self, bins):
         long = []
         for name, bin in bins.items():
             long.append(bin['yes_cost'])
         return long
-
-    def sum_market_shorts(self, market):
-        bins = self.get_all_offers(market)
-        return sum_prices(self.get_all_short(bins))
 
     def optimize_all(self, max_shares=None, minimum=False, compressed=True):
         title = "There are {} markets with negative risk.\n"
@@ -422,16 +421,18 @@ class Api:
             return 'Market "' + str(input) + '" Not Found'
         info = 'Finding value buy for "' + name + '"\n'
         bins = self.get_all_offers(market_id)
-        short = self.get_all_short(bins)
-        long = self.get_all_long(bins)
-        if len(long) <= 1:
+        no_prices = self.get_no_prices(bins)
+        yes_prices = self.get_yes_prices(bins)
+        if len(yes_prices) <= 1:
             info += "This market only has one bin"
         else:
             if bin == -1:
-                bin = long.index(max(long))
-            info += "Buying B" + str(bin + 1) + " Yes costs " + str(int(long[bin] * 100)) + '¢\n'
-            buys = [1 if i != bin and j != 1 else 0 for i, j in enumerate(short)]
-            info += "Buying No on everything else would cost " + str(int(calc_risk(buys, short, bin) * 100)) + '¢'
+                bin = yes_prices.index(max(yes_prices))
+            info += "Buying B" + str(bin + 1) + " Yes costs " + str(int(yes_prices[bin] * 100)) + '¢\n'
+            buys = [1 if i != bin and j != 1 else 0 for i, j in enumerate(no_prices)]
+            risks = risk(buys, no_prices)
+            no_cost = 1 - risks[bin]
+            info += "Buying No on everything else would cost " + str(int(no_cost * 100)) + '¢'
         return info
 
     def get_related_market_bins(self, bin_name):
