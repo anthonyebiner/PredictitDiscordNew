@@ -10,6 +10,15 @@ from fuzzywuzzy import fuzz
 VERBATIM = False
 
 
+def calc(shares: list, prices: list):
+    share_value = [shares[i] * prices[i] for i in range(len(prices))]
+    if_no = [round((shares[i] - share_value[i]) - 0.1 * (shares[i] - share_value[i]), 3) for i in
+             range(len(prices))]
+    if_yes = [-(share_value[i]) for i in range(len(prices))]
+    risk = [round(if_yes[i] + sum(if_no[0:i]) + sum(if_no[i + 1:]), 3) for i in range(len(prices))]
+    return risk
+
+
 def calc_risk(shares: list, prices: list, bin: int) -> float:
     """
     Calculate the profit of a spread of purchase amounts and no prices
@@ -17,11 +26,7 @@ def calc_risk(shares: list, prices: list, bin: int) -> float:
     :param prices: list of price of each contract
     :return: dollar profit amount
     """
-    share_value = [shares[i] * prices[i] for i in range(len(prices))]
-    if_no = [round((shares[i] - share_value[i]) - 0.1 * (shares[i] - share_value[i]), 3) for i in
-             range(len(prices))]
-    if_yes = [-(share_value[i]) for i in range(len(prices))]
-    risk = [round(if_yes[i] + sum(if_no[0:i]) + sum(if_no[i + 1:]), 3) for i in range(len(prices))]
+    risk = calc(shares, prices)
     return 1 - risk[bin]
 
 
@@ -32,11 +37,7 @@ def calc_profit(shares: list, prices: list) -> float:
     :param prices: list of price of each contract
     :return: dollar profit amount
     """
-    share_value = [shares[i] * prices[i] for i in range(len(prices))]
-    if_no = [round((shares[i] - share_value[i]) - 0.1 * (shares[i] - share_value[i]), 3) for i in
-             range(len(prices))]
-    if_yes = [-(share_value[i]) for i in range(len(prices))]
-    risk = [round(if_yes[i] + sum(if_no[0:i]) + sum(if_no[i + 1:]), 3) for i in range(len(prices))]
+    risk = calc(shares, prices)
     profit = min(risk)
     return profit
 
