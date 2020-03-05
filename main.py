@@ -104,11 +104,6 @@ def optimize_spread(prices: list, max_shares: int, minimum: bool = True, test=Fa
 
 class Api:
     def __init__(self):
-        login_info = {'email': auths.username, 'password': auths.password, 'grant_type': 'password',
-                      'rememberMe': 'false'}
-        r = requests.post('https://www.predictit.org/api/Account/token', login_info)
-        self.token = r.json()['access_token']
-        print(self.token)
         self.data = requests.get('https://www.predictit.org/api/marketdata/all').json()
         self.watch = []
         self.messages = []
@@ -155,17 +150,8 @@ class Api:
         else:
             self.data = response.json()
 
-    def get_auth(self):
-        login_info = {'email': auths.username, 'password': auths.password, 'grant_type': 'password',
-                      'rememberMe': 'false'}
-        r = requests.post('https://www.predictit.org/api/Account/token', login_info)
-        self.token = r.json()['access_token']
-        print(self.token)
-
     def get_orderbook(self, id):
         return requests.get('https://predictit-f497e.firebaseio.com/contractOrderBook/{}.json'.format(id)).json()
-        # return requests.get('https://www.predictit.org/api/Trade/' + str(id) + '/OrderBook',
-        #                     headers={'Authorization': 'Bearer ' + self.token}).json()
 
     def get_market_name(self, id):
         id = str(id)
