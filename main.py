@@ -10,39 +10,25 @@ VERBATIM = False
 
 
 def risk(num_shares: list, prices: list):
-  #TODO replace at source, and adjust type annotation
+    # TODO replace at source, and adjust type annotation
 
     num_shares = np.array(num_shares)
     prices = np.array(prices)
 
+    investments = num_shares * prices
 
-    investments =  num_shares * prices
-    
-    #profit when contract resolves to No
+    # profit when contract resolves to No
     profits = num_shares * (1.00 - prices)
     adj_profits = np.round(0.9 * profits, 3)
-    
-    #value of each position if the outcome is No
+
+    # value of each position if the outcome is No
     values = adj_profits + investments
 
-    #risks[i] = sum(adj_profits[j] for j != i)) - cost[i]
-    risks = np.round(np.sum(adj_profits) - values, 3) 
-    #(amount needed to hold the given spread of positions )
+    # risks[i] = sum(adj_profits[j] for j != i)) - cost[i]
+    risks = np.round(np.sum(adj_profits) - values, 3)
+    # (amount needed to hold the given spread of positions )
 
     return risks
-    #TODO: replace calc_profit with min(risks)
-
-
-def calc_profit(shares: list, prices: list) -> float:
-    """
-    Calculate the profit of a spread of purchase amounts and no prices
-    :param shares: list of number of shares to buy for each contract
-    :param prices: list of price of each contract
-    :return: dollar profit amount
-    """
-    risks = risk(shares, prices)
-    profit = min(risks)
-    return profit
 
 
 def sum_prices(prices: list) -> float:
@@ -67,17 +53,17 @@ def convert(lst: list) -> str:
     return string
 
 
-def optShares(cost: float) -> float:
+def opt_shares(cost: float) -> float:
     return 1.0 / (1.0 - (1.0 - float(cost)) * 0.1)
 
 
 def best_amount(prices: list, max_shares: int, test) -> list:
     costliest = max(prices)
-    share_multiplier = (max_shares / costliest) / optShares(costliest)
+    share_multiplier = (max_shares / costliest) / opt_shares(costliest)
     best_holds = []
     for i in prices:
         if not test:
-            best_holds.append([i, math.floor(share_multiplier * optShares(i))])
+            best_holds.append([i, math.floor(share_multiplier * opt_shares(i))])
         else:
             best_holds.append([i, 850])
     return best_holds
@@ -97,12 +83,12 @@ def optimize_spread(prices: list, max_shares: int, minimum: bool = True, test=Fa
         maximum -= 1
         if not minimum:
             max_spread = spread
-            max_profit = calc_profit(spread, prices)
+            max_profit = min(risk(spread, prices))
             break
         elif max(spread) <= max_shares:
-            if calc_profit(spread, prices) > max_profit:
+            if min(risk(spread, prices)) > max_profit:
                 max_spread = spread
-                max_profit = calc_profit(spread, prices)
+                max_profit = min(risk(spread, prices))
     return max_spread, max_profit
 
 
@@ -290,7 +276,8 @@ class Api:
                         msg += "   Potential profit is $" + str(profit) + " with the ideal spread\n"
                     else:
                         if max_shares != 850:
-                            msg += "Market " + str(market_id) + ' (' + str(potential) + ' / $' + str(profit) + ' / ' + str(min(quantity)) + ')\n'
+                            msg += "Market " + str(market_id) + ' (' + str(potential) + ' / $' + str(
+                                profit) + ' / ' + str(min(quantity)) + ')\n'
                         else:
                             msg += "Market " + str(market_id) + ' (' + str(potential) + ' / $' + str(
                                 profit) + ')\n'
@@ -368,7 +355,7 @@ class Api:
                 if profit > 0:
                     info += 'Negative risk found!!!\n'
                     spread = list(filter(lambda x: x != 0, optimal))
-                    info += 'Sum of 1 minus no is ' + str(sum([1-i for i in short])) + '\n'
+                    info += 'Sum of 1 minus no is ' + str(sum([1 - i for i in short])) + '\n'
                     info += 'Potential profit w/ below spread is ' + str(profit) + '\n'
                     info += 'Ideal spread is ' + str(spread) + '\n'
                 else:
