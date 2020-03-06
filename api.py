@@ -1,9 +1,13 @@
+import time
+
 import requests
 import auths
 from utils import optShares
 import math
 import re
 from fuzzywuzzy import fuzz
+import threading
+from discord import Embed
 
 
 class Offer:
@@ -16,10 +20,15 @@ class Offer:
 
 
 class Contract:
-    def __init__(self, contract_dict):
-        self.timestamp = contract_dict['timestamp']
-        self._yes = contract_dict['yesOrders']
-        self._no = contract_dict['noOrders']
+    def __init__(self, orderbook_dict, contract_dict):
+        self.timestamp = orderbook_dict['timestamp']
+        self._yes = orderbook_dict['yesOrders']
+        self._no = orderbook_dict['noOrders']
+        self.name = contract_dict['name']
+        self.id = contract_dict['id']
+        self.image = contract_dict['image']
+        self.shortName = contract_dict['shortName']
+        self.status = contract_dict['status']
 
     @property
     def yes_offers(self):
@@ -79,13 +88,20 @@ class Market:
     @property
     def contracts(self):
         for contract in self._contracts:
-            yield Contract(self._orderbook[str(contract['id'])])
+            orderbook = self._orderbook[str(contract['id'])]
+            yield Contract(orderbook, contract)
+
+    @property
+    def lowest_no_quantity(self):
+        return min([contract.best_no.quantity for contract in list(self.contracts)])
 
     def no_prices(self):
         prices = []
         for contract in self.contracts:
             if contract.best_no.pricePerShare != 0:
                 prices += [contract.best_no.pricePerShare]
+            else:
+                prices += [1]
         return prices
 
     def yes_prices(self):
@@ -93,6 +109,8 @@ class Market:
         for contract in self.contracts:
             if contract.best_yes.pricePerShare != 0:
                 prices += [contract.best_yes.pricePerShare]
+            else:
+                prices += [0]
         return prices
 
     def sum_return(self):
@@ -135,8 +153,14 @@ class Market:
                 best_holds.append(0)
         return best_holds
 
-    def optimize_spread(self, max_shares, minimize=True):
-        maximum = max_shares
+    def optimize_spread(self, max_shares=None, minimize=False):
+        if max_shares is None:
+            maximum = self.lowest_no_quantity
+            if maximum > 850:
+                maximum = 850
+            max_shares = maximum
+        else:
+            maximum = max_shares
         max_profit = 0
         max_spread = []
         while maximum > 0:
@@ -214,14 +238,57 @@ class PredictIt:
                 if str(market.id) == str(market_id):
                     return market
 
+    def optimize_all(self, max_shares=None):
+        minimize = True
+        if max_shares is not None:
+            minimize = False
+        for market in self.get_markets():
+            spread, profit = market.optimize_spread(max_shares=max_shares, minimize=minimize)
+            if profit > 0.01:
+                yield market
+
+
 
 class Discord:
     def __init__(self, pi_api: PredictIt):
         self.pi_api = pi_api
+        reload_markets_thread = threading.Thread(target=self.reload_markets_thread, daemon=True)
+        reload_markets_thread.start()
+        reload_orderbook_thread = threading.Thread(target=self.reload_orderbook_thread, daemon=True)
+        reload_orderbook_thread.start()
+
+    def reload_markets_thread(self):
+        while True:
+            print('reloading')
+            time.sleep(60*10)
+            self.pi_api.reload_markets()
+
+    def reload_orderbook_thread(self):
+        while True:
+            print('reloading')
+            time.sleep(10)
+            self.pi_api.reload_orderbook()
 
     def orderbook(self, market):
         market = self.pi_api.get_market(market)
-        pass
+        title = 'Orderbook for "' + market.name + '"\n'
+        offers = list(market.contracts)
+        max_len = 0
+        for contract in offers:
+            if len(contract.name) > max_len:
+                max_len = len(contract.name)
+        msg = ''
+        msg += '```\n'
+        msg += ' ' * (max_len + 2) + 'YES  OFFERS  NO  OFFERS\n'
+        for contract in offers:
+            if contract.best_no.quantity:
+                msg += ' ' * (max_len - len(contract.name)) + str(contract.name)
+                msg += '  ' + str(int(contract.best_yes.pricePerShare * 100)) + (' ' * (3 - len(str(int(contract.best_yes.pricePerShare * 100))))) + '  ' + str(
+                    contract.best_yes.quantity) + ' ' * (6 - len(str(contract.best_yes.quantity)))
+                msg += '  ' + str(int(contract.best_no.pricePerShare * 100)) + (' ' * (3 - len(str(int(contract.best_no.pricePerShare * 100))))) + '  ' + str(
+                    contract.best_no.quantity) + '\n'
+        msg += '```'
+        return Embed(title=title, description=msg, url=market.url, color=2206669)
 
     def risk(self):
         pass
@@ -243,6 +310,4 @@ class Discord:
 
 
 api = PredictIt(auths.username, auths.password)
-print(api.get_market(market_str='Dem Nom').name)
-
-
+print('-')

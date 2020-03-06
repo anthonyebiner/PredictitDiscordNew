@@ -10,7 +10,7 @@ VERBATIM = False
 
 
 def risk(num_shares: list, prices: list):
-  #TODO replace at source, and adjust type annotation
+   #TODO replace at source, and adjust type annotation
 
     num_shares = np.array(num_shares)
     prices = np.array(prices)
