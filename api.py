@@ -8,6 +8,7 @@ import re
 from fuzzywuzzy import fuzz
 import threading
 from discord import Embed
+import numpy as np
 
 
 class Offer:
@@ -121,12 +122,19 @@ class Market:
 
     def _calc_risk(self, spread):
         prices = [contract.best_no.pricePerShare for contract in list(self.contracts)]
-        share_value = [spread[i] * prices[i] for i in range(len(prices))]
-        if_no = [round((spread[i] - share_value[i]) - 0.1 * (spread[i] - share_value[i]), 3) for i in
-                 range(len(prices))]
-        if_yes = [-(share_value[i]) for i in range(len(prices))]
-        risk = [round(if_yes[i] + sum(if_no[0:i]) + sum(if_no[i + 1:]), 3) for i in range(len(prices))]
-        return risk
+
+        num_shares = np.array(spread)
+        prices = np.array(prices)
+
+        investments = num_shares * prices
+
+        profits = num_shares * (1.00 - prices)
+        adj_profits = np.round(0.9 * profits, 3)
+
+        values = adj_profits + investments
+
+        risks = np.round(np.sum(adj_profits) - values, 3)
+        return risks
 
     def _calc_risk_bin(self, bin):
         spread = []
@@ -248,7 +256,6 @@ class PredictIt:
                 yield market
 
 
-
 class Discord:
     def __init__(self, pi_api: PredictIt):
         self.pi_api = pi_api
@@ -311,3 +318,7 @@ class Discord:
 
 api = PredictIt(auths.username, auths.password)
 print('-')
+for market in api.optimize_all(850):
+    print(market.name)
+    print(market.sum_return())
+    print(market.optimize_spread(850))
