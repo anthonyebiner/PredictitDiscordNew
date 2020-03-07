@@ -37,7 +37,7 @@ class Contract:
             empty_offer = {
                 "costPerShareNo": 1,
                 "costPerShareYes": 0,
-                "pricePerShare": 0,
+                "pricePerShare": 1,
                 "quantity": 0,
                 "tradeType": 0
             }
@@ -94,7 +94,13 @@ class Market:
 
     @property
     def lowest_no_quantity(self):
-        return min([contract.best_no.quantity for contract in list(self.contracts)])
+        quantities = []
+        for contract in self.contracts:
+            if contract.best_no.quantity > 0:
+                quantities += [contract.best_no.quantity]
+        if not quantities:
+            quantities += [0]
+        return min(quantities)
 
     def no_prices(self):
         prices = []
@@ -161,7 +167,12 @@ class Market:
                 best_holds.append(0)
         return best_holds
 
-    def optimize_spread(self, max_shares=None, minimize=False):
+    def optimize_spread(self, max_shares=None, minimize=None):
+        if minimize is None:
+            minimize = True
+            if max_shares is not None:
+                minimize = False
+
         if max_shares is None:
             maximum = self.lowest_no_quantity
             if maximum > 850:
@@ -169,9 +180,10 @@ class Market:
             max_shares = maximum
         else:
             maximum = max_shares
+
         max_profit = 0
         max_spread = []
-        while maximum > 0:
+        while maximum > max_shares-(max_shares//8.5):
             spread = self._best_amount(maximum)
             maximum -= 1
             if not minimize:
@@ -247,11 +259,8 @@ class PredictIt:
                     return market
 
     def optimize_all(self, max_shares=None):
-        minimize = True
-        if max_shares is not None:
-            minimize = False
         for market in self.get_markets():
-            spread, profit = market.optimize_spread(max_shares=max_shares, minimize=minimize)
+            spread, profit = market.optimize_spread(max_shares=max_shares)
             if profit > 0.01:
                 yield market
 
@@ -273,7 +282,7 @@ class Discord:
     def reload_orderbook_thread(self):
         while True:
             print('reloading')
-            time.sleep(10)
+            time.sleep(30)
             self.pi_api.reload_orderbook()
 
     def orderbook(self, market):
@@ -284,8 +293,7 @@ class Discord:
         for contract in offers:
             if len(contract.name) > max_len:
                 max_len = len(contract.name)
-        msg = ''
-        msg += '```\n'
+        msg = '```\n'
         msg += ' ' * (max_len + 2) + 'YES  OFFERS  NO  OFFERS\n'
         for contract in offers:
             if contract.best_no.quantity:
@@ -297,14 +305,79 @@ class Discord:
         msg += '```'
         return Embed(title=title, description=msg, url=market.url, color=2206669)
 
-    def risk(self):
-        pass
+    def risk_market(self, market, max_shares=None, minimize=False):
+        market = self.pi_api.get_market(market)
+        if max_shares is None:
+            max_shares = market.lowest_no_quantity
+        title = 'Market risk for "' + market.short_name + '"\n'
+        msg = ''
+        spread, profit = market.optimize_spread(max_shares, minimize)
+        if profit > 0:
+            msg += 'Negative risk found!!!\n'
+            spread = list(filter(lambda x: x != 0, spread))
+            msg += 'Sum of 1 minus no is ' + str(market.sum_return()) + '\n'
+            msg += 'Potential profit w/ below spread is ' + str(profit) + '\n'
+            msg += 'Ideal spread is ' + str(spread) + '\n'
+        else:
+            msg += 'No negative risk available at ' + str(max_shares) + ' shares'
 
-    def bins(self):
-        pass
+        return Embed(title=title, description=msg, url=market.url, color=2206669)
 
-    def related_markets_bin(self):
-        pass
+    def risk_all(self, max_shares=None):
+        title = 'There are {} markets with negative risk\n'
+        msg = '```\n'
+        for market in self.pi_api.optimize_all(max_shares):
+            spread, profit = market.optimize_spread(max_shares)
+            if max_shares:
+                msg += "Market " + str(market.id) + ' (' + str(market.sum_return()) + ' / $' + str(profit) + ')\n'
+            else:
+                msg += "Market " + str(market.id) + ' (' + str(market.sum_return()) + ' / $' + str(profit) + ' / ' + str(market.lowest_no_quantity) + ')\n'
+        msg += '```'
+        return Embed(title=title, description=msg, color=2206669)
+
+    def bins(self, market):
+        market = self.pi_api.get_market(market)
+        title = 'Market bins for "' + market.short_name + '"\n'
+        offers = list(market.contracts)
+        max_len = 0
+        for contract in offers:
+            if len(contract.name) > max_len:
+                max_len = len(contract.name)
+        msg = '```\n'
+        msg += ' ' * (max_len + 2) + 'YES  NO\n'
+        for contract in offers:
+            if contract.best_no.quantity:
+                msg += ' ' * (max_len - len(contract.name)) + str(contract.name)
+                msg += '  ' + str(int(contract.best_yes.pricePerShare * 100)) + (
+                        ' ' * (3 - len(str(int(contract.best_yes.pricePerShare * 100)))))
+                msg += '  ' + str(int(contract.best_no.pricePerShare * 100)) + (
+                        ' ' * (3 - len(str(int(contract.best_no.pricePerShare * 100))))) + '\n'
+        msg += '```'
+        return Embed(title=title, description=msg, url=market.url, color=2206669)
+
+    def related_markets_bin(self, bin_name):
+        title = 'Looking for markets containing "' + bin_name + '" as a bin\n'
+        msg = '```\n'
+        n = 0
+        m = 1
+        for letter in bin_name:
+            if letter == '+':
+                m += 1
+        bin_name = bin_name.strip('+')
+        bin_name_words = bin_name.split()
+        for market in self.pi_api.get_markets():
+            for contract in market.contracts:
+                if all([bin_name in contract.name.lower() for bin_name in bin_name_words]):
+                    if (20 * m) > n >= (20 * (m - 1)):
+                        msg += market.short_name + ' (' + str(market.id) + ') ' + str(
+                            int(contract.best_yes.pricePerShare * 100)) + '¢\n'
+                    n += 1
+        if n == 0:
+            msg += "No markets found!"
+        elif n >= 20 * m:
+            msg += "Only displaying the first twenty markets, to get twenty more, run ,. " + bin_name + "+" * m
+        msg += '```'
+        return Embed(title=title, description=msg, color=2206669)
 
     def related_markets_title(self):
         pass
@@ -317,8 +390,12 @@ class Discord:
 
 
 api = PredictIt(auths.username, auths.password)
+d = Discord(api)
 print('-')
-for market in api.optimize_all(850):
-    print(market.name)
-    print(market.sum_return())
-    print(market.optimize_spread(850))
+print(d.related_markets_bin('yang').description)
+
+# print('-')
+# for a in api.optimize_all(850):
+#     print(a.name)
+#     print(a.sum_return())
+#     print(a.optimize_spread(850))
