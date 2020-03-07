@@ -21,7 +21,7 @@ class Offer:
 
 
 class Contract:
-    def __init__(self, orderbook_dict, contract_dict):
+    def __init__(self, orderbook_dict, contract_dict, market):
         self.timestamp = orderbook_dict['timestamp']
         self._yes = orderbook_dict['yesOrders']
         self._no = orderbook_dict['noOrders']
@@ -30,6 +30,7 @@ class Contract:
         self.image = contract_dict['image']
         self.shortName = contract_dict['shortName']
         self.status = contract_dict['status']
+        self.market = market
 
     @property
     def yes_offers(self):
@@ -90,7 +91,7 @@ class Market:
     def contracts(self):
         for contract in self._contracts:
             orderbook = self._orderbook[str(contract['id'])]
-            yield Contract(orderbook, contract)
+            yield Contract(orderbook, contract, self)
 
     @property
     def lowest_no_quantity(self):
@@ -272,6 +273,7 @@ class Discord:
         reload_markets_thread.start()
         reload_orderbook_thread = threading.Thread(target=self.reload_orderbook_thread, daemon=True)
         reload_orderbook_thread.start()
+        self.old_markets = {}
 
     def reload_markets_thread(self):
         while True:
@@ -282,8 +284,31 @@ class Discord:
     def reload_orderbook_thread(self):
         while True:
             print('reloading')
-            time.sleep(30)
+            time.sleep(15)
             self.pi_api.reload_orderbook()
+
+    def check_swings(self):
+        messages = []
+        for market in self.pi_api.get_markets():
+            try:
+                old_prices = self.old_markets[market.id]
+                for contract in market.contracts:
+                    if abs(contract.best_no.costPerShareYes - old_prices[contract.id]) >= .099:
+                        change = round(contract.best_no.costPerShareYes - old_prices[contract.id], 2)
+                        title = "Price swing detected in {}".format(market.short_name)
+                        msg = "```\n"
+                        msg += "\nContract '{}' has moved {}¢ in the past 15 seconds\n".format(contract.name, change)
+                        msg += "```"
+                        messages.append(Embed(title=title, description=msg, url=market.url, color=2206669))
+                        old_prices[contract.id] = contract.best_no.costPerShareYes
+            except KeyError:
+                self.old_markets[market.id] = {}
+                for contract in market.contracts:
+                    self.old_markets[market.id][contract.id] = contract.best_no.costPerShareYes
+        return messages
+
+    def check_risk(self):
+        pass
 
     def orderbook(self, market):
         market = self.pi_api.get_market(market)
@@ -319,21 +344,25 @@ class Discord:
             msg += 'Potential profit w/ below spread is ' + str(profit) + '\n'
             msg += 'Ideal spread is ' + str(spread) + '\n'
         else:
-            msg += 'No negative risk available at ' + str(max_shares) + ' shares'
+            msg += 'No negative risk available at ' + str(max_shares) + ' shares :('
 
         return Embed(title=title, description=msg, url=market.url, color=2206669)
 
     def risk_all(self, max_shares=None):
         title = 'There are {} markets with negative risk\n'
         msg = '```\n'
+        n = 0
         for market in self.pi_api.optimize_all(max_shares):
+            n += 1
             spread, profit = market.optimize_spread(max_shares)
             if max_shares:
                 msg += "Market " + str(market.id) + ' (' + str(market.sum_return()) + ' / $' + str(profit) + ')\n'
             else:
                 msg += "Market " + str(market.id) + ' (' + str(market.sum_return()) + ' / $' + str(profit) + ' / ' + str(market.lowest_no_quantity) + ')\n'
+        if n == 0:
+            msg += ':('
         msg += '```'
-        return Embed(title=title, description=msg, color=2206669)
+        return Embed(title=title.format(n), description=msg, color=2206669)
 
     def bins(self, market):
         market = self.pi_api.get_market(market)
@@ -363,7 +392,7 @@ class Discord:
         for letter in bin_name:
             if letter == '+':
                 m += 1
-        bin_name = bin_name.strip('+')
+        bin_name = bin_name.strip('+').lower()
         bin_name_words = bin_name.split()
         for market in self.pi_api.get_markets():
             for contract in market.contracts:
@@ -388,7 +417,7 @@ class Discord:
         for letter in name_frag:
             if letter == '+':
                 m += 1
-        name_frag = name_frag.strip('+')
+        name_frag = name_frag.strip('+').lower()
         name_frag_words = name_frag.split()
         for market in self.pi_api.get_markets():
             if all([name_frag in market.name.lower() or name_frag in market.short_name.lower() for name_frag in
@@ -401,7 +430,7 @@ class Discord:
         elif n >= 20 * m:
             msg += "Only displaying the first twenty markets, to get twenty more, run ,- " + name_frag + "+" * m
         msg += '```'
-        return Embed(title=title, description=msg, color=220669)
+        return Embed(title=title, description=msg, color=2206669)
 
     def value_buy(self, market, bin):
         market = self.pi_api.get_market(market)
@@ -414,15 +443,4 @@ class Discord:
             risk = market.calc_risk_bin(bin - 1)
             msg += "Buying No on everything else would cost " + str(int(risk * 100)) + '¢\n'
         msg += '```'
-        return Embed(title=title, description=msg, url=market.url, color=220669)
-
-
-api = PredictIt(auths.username, auths.password)
-d = Discord(api)
-print(d.value_buy('dem nom', 1).description)
-
-# print('-')
-# for a in api.optimize_all(850):
-#     print(a.name)
-#     print(a.sum_return())
-#     print(a.optimize_spread(850))
+        return Embed(title=title, description=msg, url=market.url, color=2206669)
