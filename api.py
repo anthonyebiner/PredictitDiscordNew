@@ -142,7 +142,7 @@ class Market:
         risks = np.round(np.sum(adj_profits) - values, 3)
         return risks
 
-    def _calc_risk_bin(self, bin):
+    def calc_risk_bin(self, bin):
         spread = []
         for i, contract in enumerate(self.contracts):
             if contract.best_no.quantity != 0 and i != bin:
@@ -379,20 +379,47 @@ class Discord:
         msg += '```'
         return Embed(title=title, description=msg, color=2206669)
 
-    def related_markets_title(self):
-        pass
+    def related_markets_title(self, name_frag):
+        name_frag = name_frag.lower()
+        title = 'Looking for markets containing "' + name_frag + '" in the title\n'
+        msg = '```\n'
+        n = 0
+        m = 1
+        for letter in name_frag:
+            if letter == '+':
+                m += 1
+        name_frag = name_frag.strip('+')
+        name_frag_words = name_frag.split()
+        for market in self.pi_api.get_markets():
+            if all([name_frag in market.name.lower() or name_frag in market.short_name.lower() for name_frag in
+                    name_frag_words]):
+                if (20 * m) > n >= (20 * (m - 1)):
+                    msg += market.short_name + ' (' + str(market.id) + ')\n'
+                n += 1
+        if n == 0:
+            msg += "No markets found!"
+        elif n >= 20 * m:
+            msg += "Only displaying the first twenty markets, to get twenty more, run ,- " + name_frag + "+" * m
+        msg += '```'
+        return Embed(title=title, description=msg, color=220669)
 
-    def divide_bins(self):
-        pass
-
-    def value_buy(self):
-        pass
+    def value_buy(self, market, bin):
+        market = self.pi_api.get_market(market)
+        title = 'Value buy for "' + market.short_name + '"\n'
+        msg = '```\n'
+        if len(list(market.contracts)) <= 1:
+            msg += "This market only has one bin"
+        else:
+            msg += "Buying B" + str(bin) + " Yes costs " + str(int(list(market.contracts)[bin - 1].best_yes.pricePerShare * 100)) + '¢\n'
+            risk = market.calc_risk_bin(bin - 1)
+            msg += "Buying No on everything else would cost " + str(int(risk * 100)) + '¢\n'
+        msg += '```'
+        return Embed(title=title, description=msg, url=market.url, color=220669)
 
 
 api = PredictIt(auths.username, auths.password)
 d = Discord(api)
-print('-')
-print(d.related_markets_bin('yang').description)
+print(d.value_buy('dem nom', 1).description)
 
 # print('-')
 # for a in api.optimize_all(850):
