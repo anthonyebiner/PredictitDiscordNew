@@ -228,6 +228,8 @@ async def on_message(message):
             await message.channel.send(market + " is currently trading at $" + str(data.info['regularMarketPrice']))
         except:
             await message.channel.send(market + " not found")
+    elif message.content.startswith(",i") or message.content.startswith(",implied"):
+        await message.channel.send(embed=discord_api.divide_bins(3698, 3633))
     elif message.content.startswith(",stats"):
         msg = ""
         for user, num in stats['users'].items():

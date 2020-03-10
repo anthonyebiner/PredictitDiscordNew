@@ -210,7 +210,7 @@ class Market:
                     max_profit = self._potential_profit(spread)
         return max_spread, max_profit
 
-    def get_contract(self, bin_num=None, bin_name=None):
+    def get_contract(self, bin_num=None, bin_name=None, bin_exact=None):
         if bin_num is not None:
             return list(self.contracts)[bin_num]
         elif bin_name is not None:
@@ -229,6 +229,10 @@ class Market:
                 if matches > most_matches:
                     most_matches = matches
             return best_diff_contract
+        elif bin_exact is not None:
+            for contract in self.contracts:
+                if contract.shortName == bin_exact:
+                    return contract
 
     def buy_spread(self, spread):
         for i, num in enumerate(spread):
@@ -501,3 +505,20 @@ class Discord:
             msg += "Buying No on everything else would cost " + str(int(risk * 100)) + '¢\n'
         msg += '```'
         return Embed(title=title, description=msg, url=market.url, color=2206669)
+
+    def divide_bins(self, market1, market2):
+        market1 = self.pi_api.get_market(market1)
+        market2 = self.pi_api.get_market(market2)
+        divided_prices = {}
+        for contract in market1.contracts:
+            try:
+                if contract.best_yes.costPerShareYes >= 0.02:
+                    divided_prices[contract.shortName] = int(contract.best_yes.costPerShareYes / market2.get_contract(bin_exact=contract.shortName).best_yes.costPerShareYes * 100)
+            except AttributeError:
+                pass
+        print('Getting Difference')
+        title = "Implied odds"
+        msg = ""
+        for name, div in divided_prices.items():
+            msg += name + ": " + str(div) + "%\n"
+        return Embed(title=title, description=msg, color=2206669)
