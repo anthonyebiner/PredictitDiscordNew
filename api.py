@@ -246,6 +246,7 @@ class PredictIt:
         login_info = {'email': username, 'password': password, 'grant_type': 'password',
                       'rememberMe': 'false'}
         r = requests.post('https://www.predictit.org/api/Account/token', login_info)
+        self.session = requests.session()
         self.token = r.json()['access_token']
         self.username = username
         self.password = password
@@ -253,24 +254,28 @@ class PredictIt:
         self._orderbook = requests.get('https://predictit-f497e.firebaseio.com/contractOrderBook.json').json()
 
     def reload_markets(self):
-        self._markets = requests.get('https://www.predictit.org/api/marketdata/all').json()
+        self._markets = self.session.get('https://www.predictit.org/api/marketdata/all').json()
 
     def reload_orderbook(self):
-        self._orderbook = requests.get('https://predictit-f497e.firebaseio.com/contractOrderBook.json').json()
+        r = self.session.get('https://predictit-f497e.firebaseio.com/contractOrderBook.json')
+        print(r)
+        self._orderbook = r.json()
 
     def get_max_invested(self, market_id):
-        contracts = requests.get("https://www.predictit.org/api/Market/{}/Contracts".format(market_id),
+        contracts = self.session.get("https://www.predictit.org/api/Market/{}/Contracts".format(market_id),
                                  headers={'Authorization': 'Bearer ' + self.token,
                                           'Content-Type': 'application/x-www-form-urlencoded'}).json()
         invested = []
+        prices = []
         for contract in contracts:
             invested += [contract['userQuantity']]
-        return max(invested)
+            prices += [contract['bestNoPrice']]
+        return max(invested), prices
 
     def get_auth(self):
         login_info = {'email': self.username, 'password': self.password, 'grant_type': 'password',
                       'rememberMe': 'false'}
-        r = requests.post('https://www.predictit.org/api/Account/token', login_info)
+        r = self.session.post('https://www.predictit.org/api/Account/token', login_info)
         self.token = r.json()['access_token']
 
     def get_markets(self):
@@ -322,7 +327,14 @@ class Discord:
         reload_markets_thread.start()
         reload_orderbook_thread = threading.Thread(target=self.reload_orderbook_thread, daemon=True)
         reload_orderbook_thread.start()
+        reload_auth_thread = threading.Thread(target=self.reload_auth_thread, daemon=True)
+        reload_auth_thread.start()
         self.old_markets = {}
+
+    def reload_auth_thread(self):
+        while True:
+            time.sleep(60*60*3+random.randrange(0, 60*60*2))
+            self.pi_api.get_auth()
 
     def reload_markets_thread(self):
         while True:
@@ -338,8 +350,20 @@ class Discord:
     def buy_risk(self, share_max):
         for market in self.pi_api.optimize_all():
             print("buying neg risk in " + str(market.id))
-            max_invested = self.pi_api.get_max_invested(market.id)
-            if max_invested > 450:
+            max_invested, prices = self.pi_api.get_max_invested(market.id)
+            correct = True
+            for i, contract in enumerate(market.contracts):
+                if contract.best_no.pricePerShare and contract.best_no.pricePerShare != prices[i]:
+                    correct = False
+            if not correct:
+                print('discrepancy detected')
+                print(market.short_name)
+                print([c.id for c in market.contracts])
+                print([c.best_no.quantity for c in market.contracts])
+                print([c.best_no.pricePerShare for c in market.contracts])
+                print(prices)
+                continue
+            if max_invested > 800:
                 continue
             spread, profit = market.optimize_spread()
             if min([i for i in spread if i != 0]) > share_max:
