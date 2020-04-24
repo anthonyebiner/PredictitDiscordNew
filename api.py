@@ -347,30 +347,6 @@ class Discord:
             self.pi_api.reload_orderbook()
             self.buy_risk(50)
 
-    def buy_risk(self, share_max):
-        for market in self.pi_api.optimize_all():
-            print("buying neg risk in " + str(market.id))
-            max_invested, prices = self.pi_api.get_max_invested(market.id)
-            correct = True
-            for i, contract in enumerate(market.contracts):
-                if contract.best_no.pricePerShare and contract.best_no.pricePerShare != prices[i]:
-                    correct = False
-            if not correct:
-                print('discrepancy detected')
-                print(market.short_name)
-                print([c.id for c in market.contracts])
-                print([c.best_no.quantity for c in market.contracts])
-                print([c.best_no.pricePerShare for c in market.contracts])
-                print(prices)
-                continue
-            if max_invested > 800:
-                continue
-            spread, profit = market.optimize_spread()
-            if min([i for i in spread if i != 0]) > share_max:
-                spread, profit = market.optimize_spread(share_max)
-            if profit > 0:
-                market.buy_spread(spread)
-
     def check_swings(self):
         messages = []
         for market in self.pi_api.get_markets():
