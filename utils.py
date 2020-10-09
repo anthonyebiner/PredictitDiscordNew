@@ -10,5 +10,5 @@ def convert(lst: list) -> str:
     return string
 
 
-def optShares(cost: float) -> float:
+def opt_shares(cost: float) -> float:
     return 1.0 / (1.0 - (1.0 - float(cost)) * 0.1)
