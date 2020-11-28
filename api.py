@@ -1,15 +1,19 @@
 import math
-import random
 import re
 import threading
 import time
+import traceback
 
 import numpy as np
 import requests
+import wolframalpha
 from discord import Embed
 from fuzzywuzzy import fuzz
 
-from utils import opt_shares
+import auths
+from Polymarket import Poly
+from utils import opt_shares, space
+from wallets import Bank
 
 
 class Offer:
@@ -207,7 +211,7 @@ class Market:
                 )
                 diff1 = fuzz.token_sort_ratio(guess, short_name)
                 if matches > most_matches or (
-                    matches >= most_matches and (diff1 > best_diff)
+                        matches >= most_matches and (diff1 > best_diff)
                 ):
                     best_diff = diff1
                     best_diff_contract = contract
@@ -239,7 +243,6 @@ class PredictIt:
         r = self.session.get(
             "https://predictit-f497e.firebaseio.com/contractOrderBook.json"
         )
-        print(r)
         self._orderbook = r.json()
 
     def get_markets(self):
@@ -261,7 +264,7 @@ class PredictIt:
             diff1 = fuzz.token_sort_ratio(guess, short_name)
             diff2 = fuzz.token_sort_ratio(guess, long_name)
             if matches > most_matches or (
-                matches >= most_matches and (diff1 > best_diff or diff2 > best_diff)
+                    matches >= most_matches and (diff1 > best_diff or diff2 > best_diff)
             ):
                 best_diff = max(diff1, diff2)
                 best_diff_id = market.id
@@ -296,17 +299,30 @@ class Discord:
         )
         reload_markets_thread.start()
         self.old_markets = {}
+        self.bank = Bank.from_file("bank")
+        self.poly_api = Poly()
+        self.wolfram = wolframalpha.Client(app_id=auths.app_id)
 
     def reload_markets_thread(self):
-        refresh_market = True
+        i = 0
         while True:
-            time.sleep(30)
-            if refresh_market:
-                self.pi_api.reload_markets()
-            self.pi_api.reload_orderbook()
-            refresh_market = not refresh_market
+            time.sleep(10)
+            if i == 0:
+                try:
+                    self.pi_api.reload_markets()
+                    self.poly_api.refresh_markets()
+                except:
+                    pass
+            try:
+                self.pi_api.reload_orderbook()
+            except:
+                pass
+            i += 1
+            if i >= 6:
+                i = 0
 
     def orderbook(self, market):
+        msg = "```" + str(market) + "\n"
         market = self.pi_api.get_market(market)
         title = 'Orderbook for "' + market.name + '"\n'
         offers = list(market.contracts)
@@ -314,36 +330,35 @@ class Discord:
         for contract in offers:
             if len(contract.name) > max_len:
                 max_len = len(contract.name)
-        msg = "```\n"
         msg += " " * (max_len + 2) + "YES  OFFERS  NO  OFFERS\n"
         for contract in offers:
             if contract.best_no.quantity:
                 msg += " " * (max_len - len(contract.name)) + str(contract.name)
                 msg += (
-                    "  "
-                    + str(int(contract.best_yes.pricePerShare * 100))
-                    + (" " * (3 - len(str(int(contract.best_yes.pricePerShare * 100)))))
-                    + "  "
-                    + str(contract.best_yes.quantity)
-                    + " " * (6 - len(str(contract.best_yes.quantity)))
+                        "  "
+                        + str(int(contract.best_yes.pricePerShare * 100))
+                        + (" " * (3 - len(str(int(contract.best_yes.pricePerShare * 100)))))
+                        + "  "
+                        + str(contract.best_yes.quantity)
+                        + " " * (6 - len(str(contract.best_yes.quantity)))
                 )
                 msg += (
-                    "  "
-                    + str(int(contract.best_no.pricePerShare * 100))
-                    + (" " * (3 - len(str(int(contract.best_no.pricePerShare * 100)))))
-                    + "  "
-                    + str(contract.best_no.quantity)
-                    + "\n"
+                        "  "
+                        + str(int(contract.best_no.pricePerShare * 100))
+                        + (" " * (3 - len(str(int(contract.best_no.pricePerShare * 100)))))
+                        + "  "
+                        + str(contract.best_no.quantity)
+                        + "\n"
                 )
         msg += "```"
         return Embed(title=title, description=msg, url=market.url, color=2206669)
 
     def risk_market(self, market, max_shares=None, minimize=False):
+        msg = "```" + market + "." + str(max_shares) + "." + str(minimize) + "\n"
         market = self.pi_api.get_market(market)
         if max_shares is None:
             max_shares = market.lowest_no_quantity
         title = 'Market risk for "' + market.short_name + '"\n'
-        msg = ""
         spread, profit = market.optimize_spread(max_shares, minimize)
         if profit > 0:
             msg += "Negative risk found!!!\n"
@@ -353,37 +368,37 @@ class Discord:
             msg += "Ideal spread is " + str(spread) + "\n"
         else:
             msg += "No negative risk available at " + str(max_shares) + " shares :("
-
+        msg += "```"
         return Embed(title=title, description=msg, url=market.url, color=2206669)
 
     def risk_all(self, max_shares=None):
         title = "There are {} markets with negative risk\n"
-        msg = "```\n"
+        msg = "```"+str(max_shares)+"\n"
         n = 0
         for market in self.pi_api.optimize_all(max_shares):
             n += 1
             spread, profit = market.optimize_spread(max_shares)
             if max_shares:
                 msg += (
-                    "Market "
-                    + str(market.id)
-                    + " ("
-                    + str(market.sum_return())
-                    + " / $"
-                    + str(profit)
-                    + ")\n"
+                        "Market "
+                        + str(market.id)
+                        + " ("
+                        + str(market.sum_return())
+                        + " / $"
+                        + str(profit)
+                        + ")\n"
                 )
             else:
                 msg += (
-                    "Market "
-                    + str(market.id)
-                    + " ("
-                    + str(market.sum_return())
-                    + " / $"
-                    + str(profit)
-                    + " / "
-                    + str(market.lowest_no_quantity)
-                    + ")\n"
+                        "Market "
+                        + str(market.id)
+                        + " ("
+                        + str(market.sum_return())
+                        + " / $"
+                        + str(profit)
+                        + " / "
+                        + str(market.lowest_no_quantity)
+                        + ")\n"
                 )
         if n == 0:
             msg += ":("
@@ -391,6 +406,7 @@ class Discord:
         return Embed(title=title.format(n), description=msg, color=2206669)
 
     def bins(self, market):
+        msg = "```"+str(market).replace(" ", '.') + "\n"
         market = self.pi_api.get_market(market)
         title = 'Market bins for "' + market.short_name + '"\n'
         offers = list(market.contracts)
@@ -398,93 +414,80 @@ class Discord:
         for contract in offers:
             if len(contract.name) > max_len:
                 max_len = len(contract.name)
-        msg = "```\n"
         msg += " " * (max_len + 2) + "YES  NO\n"
         for contract in offers:
             if contract.best_no.quantity:
                 msg += " " * (max_len - len(contract.name)) + str(contract.name)
                 msg += (
-                    "  "
-                    + str(int(contract.best_yes.pricePerShare * 100))
-                    + (" " * (3 - len(str(int(contract.best_yes.pricePerShare * 100)))))
+                        "  "
+                        + str(int(contract.best_yes.pricePerShare * 100))
+                        + (" " * (3 - len(str(int(contract.best_yes.pricePerShare * 100)))))
                 )
                 msg += (
-                    "  "
-                    + str(int(contract.best_no.pricePerShare * 100))
-                    + (" " * (3 - len(str(int(contract.best_no.pricePerShare * 100)))))
-                    + "\n"
+                        "  "
+                        + str(int(contract.best_no.pricePerShare * 100))
+                        + (" " * (3 - len(str(int(contract.best_no.pricePerShare * 100)))))
+                        + "\n"
                 )
         msg += "```"
-        return Embed(title=title, description=msg, url=market.url, color=2206669)
+        return Embed(title=title, description=msg, url=market.url, color=2206669).set_thumbnail(url=market.image)
 
-    def related_markets_bin(self, bin_name):
+    def related_markets_bin(self, bin_name, page):
         title = 'Looking for markets containing "' + bin_name + '" as a bin\n'
         msg = "```\n"
-        n = 0
-        m = 1
-        for letter in bin_name:
-            if letter == "+":
-                m += 1
         bin_name = bin_name.strip("+").lower()
         bin_name_words = bin_name.split()
+        messages = []
         for market in self.pi_api.get_markets():
             for contract in market.contracts:
                 if all(
-                    [bin_name in contract.name.lower() for bin_name in bin_name_words]
+                        [bin_name in contract.name.lower() for bin_name in bin_name_words]
                 ):
-                    if (20 * m) > n >= (20 * (m - 1)):
-                        msg += (
+                    messages.append(
                             market.short_name
                             + " ("
                             + str(market.id)
                             + ") "
                             + str(int(contract.best_yes.pricePerShare * 100))
                             + "¢\n"
-                        )
-                    n += 1
-        if n == 0:
+                    )
+        if len(messages) == 0:
             msg += "No markets found!"
-        elif n >= 20 * m:
+        else:
+            for m in messages[20*page:20*page+20]:
+                msg += m
             msg += (
-                "Only displaying the first twenty markets, to get twenty more, run ,. "
-                + bin_name
-                + "+" * m
+                    "Displaying page " + str(page + 1) + " of " + str(len(messages)//20 + 1)
             )
         msg += "```"
-        return Embed(title=title, description=msg, color=2206669)
+        return Embed(title=title, description=msg, color=2206669), len(messages)//20 + 1
 
-    def related_markets_title(self, name_frag):
+    def related_markets_title(self, name_frag, page):
         name_frag = name_frag.lower()
         title = 'Looking for markets containing "' + name_frag + '" in the title\n'
         msg = "```\n"
-        n = 0
-        m = 1
-        for letter in name_frag:
-            if letter == "+":
-                m += 1
         name_frag = name_frag.strip("+").lower()
         name_frag_words = name_frag.split()
+        messages = []
         for market in self.pi_api.get_markets():
             if all(
-                [
-                    name_frag in market.name.lower()
-                    or name_frag in market.short_name.lower()
-                    for name_frag in name_frag_words
-                ]
+                    [
+                        name_frag in market.name.lower()
+                        or name_frag in market.short_name.lower()
+                        for name_frag in name_frag_words
+                    ]
             ):
-                if (20 * m) > n >= (20 * (m - 1)):
-                    msg += market.short_name + " (" + str(market.id) + ")\n"
-                n += 1
-        if n == 0:
+                messages.append(market.short_name + " (" + str(market.id) + ")\n")
+        if len(messages) == 0:
             msg += "No markets found!"
-        elif n >= 20 * m:
+        else:
+            for m in messages[20*page:20*page+20]:
+                msg += m
             msg += (
-                "Only displaying the first twenty markets, to get twenty more, run ,- "
-                + name_frag
-                + "+" * m
+                    "Displaying page " + str(page + 1) + " of " + str(len(messages)//20 + 1)
             )
         msg += "```"
-        return Embed(title=title, description=msg, color=2206669)
+        return Embed(title=title, description=msg, color=2206669), len(messages)//20 + 1
 
     def value_buy(self, market, bin):
         market = self.pi_api.get_market(market)
@@ -494,17 +497,17 @@ class Discord:
             msg += "This market only has one bin"
         else:
             msg += (
-                "Buying B"
-                + str(bin)
-                + " Yes costs "
-                + str(int(list(market.contracts)[bin - 1].best_yes.pricePerShare * 100))
-                + "¢\n"
+                    "Buying B"
+                    + str(bin)
+                    + " Yes costs "
+                    + str(int(list(market.contracts)[bin - 1].best_yes.pricePerShare * 100))
+                    + "¢\n"
             )
             risk = market.calc_risk_bin(bin - 1)
             msg += (
-                "Buying No on everything else would cost "
-                + str(int(risk * 100))
-                + "¢\n"
+                    "Buying No on everything else would cost "
+                    + str(int(risk * 100))
+                    + "¢\n"
             )
         msg += "```"
         return Embed(title=title, description=msg, url=market.url, color=2206669)
@@ -531,3 +534,106 @@ class Discord:
         for name, div in divided_prices.items():
             msg += name + ": " + str(div) + "%\n"
         return Embed(title=title, description=msg, color=2206669)
+
+    def buy(self, market, bin, yes, user):
+        w = self.bank.get_wallet(user)
+        s = Bank.contract_num_to_string(market, bin, self.pi_api)
+        if s is None:
+            print("None")
+            return None
+        p = w.buy_contract(market, s, yes, self.pi_api)
+        self.bank.save_to_file("bank")
+        return p
+
+    def sell(self, market, bin, yes, user):
+        w = self.bank.get_wallet(user)
+        s = Bank.contract_num_to_string(market, bin, self.pi_api)
+        if s is None:
+            return False
+        profit = w.sell_contract(market, s, yes, self.pi_api)
+        self.bank.save_to_file("bank")
+        return profit
+
+    def list_bets(self, page, user, sold):
+        title = user + "'s bets"
+        msg = "```" + str(page + 1) + "\n"
+        wallet = self.bank.get_wallet(user)
+        msg += wallet.to_string(page, sold, self.pi_api)
+        msg += "```" + "\nDisplaying page " + str(page + 1) + " of " + str(len(wallet.bets) // 25 + 1)
+        return Embed(title=title, description=msg, color=2206669), len(wallet.bets) // 25 + 1
+
+    def profit(self, user):
+        title = user + "'s current profit"
+        bets = self.bank.get_wallet(user)
+        profit = bets.profit(self.pi_api)
+        msg = "If you maxed out each of their bets when they added it, you would have made $" + str(round(profit, 2)) + "! "
+        return Embed(title=title, description=msg, color=2206669)
+
+    def leaderboard(self, page):
+        title = "Leaderboard"
+        msg = "```" + str(page + 1) + "\n"
+        msg += self.bank.to_string(page, self.pi_api)
+        msg += "```" + "\nDisplaying page " + str(page + 1) + " of " + str(len(self.bank.wallets) // 25 + 1)
+        return Embed(title=title, description=msg, color=2206669), len(self.bank.wallets) // 25 + 1
+
+    def project(self, user):
+        title = user + "'s bets"
+        w = self.bank.get_wallet(user)
+        profit = w.project(self.pi_api)
+        msg = "If you maxed out each 99% bet at current prices, you would make $" + str(
+            round(profit, 2)) + " on $" + str(850*len([i for i in w.bets if i.last_price != 1])) + " principal IF they all resolved in our favor! "
+        return Embed(title=title, description=msg, color=2206669)
+
+    def remove(self, user, market, bin, side):
+        w = self.bank.get_wallet(user)
+        s = Bank.contract_num_to_string(market, bin, self.pi_api)
+        if s is not None and w.remove_contract(market, s, side, self.pi_api):
+            self.bank.save_to_file("bank")
+            return Embed(title="Success")
+        return Embed(title="Failure")
+
+    def poly_bins(self, guess):
+        q = self.poly_api.search_questions(guess)
+        embed = Embed(title=q.name, color=2206669, url="https://www.polymarket.com/market/"+q.slug)
+        if len(q.outcomes) == 2:
+            max_len = max(len(q.outcomes[0] + q.outcomePrices[0]), len(q.outcomes[1] + q.outcomePrices[1])) + 2
+            msg = "```" + "\n"
+            msg += space(q.outcomes[0], '', '', "$" + q.outcomePrices[0], max_len) + "\n"
+            msg += space(q.outcomes[1], '', '', "$" + q.outcomePrices[1], max_len) + "\n"
+            msg += "```"
+            embed.add_field(name="Outcomes", value=msg)
+        msg = "```" + "\n"
+        msg += space("liquidity", '', '', q.liquidity, 35) + "\n"
+        msg += space("volume", '', '', q.volume, 35) + "\n"
+        category = q.category if q.category else "None"
+        msg += space("category", '', '', category, 35) + "\n"
+        end = q.end_date if q.end_date else "None"
+        msg += space("end date", '', '', end, 35) + "\n"
+        closed = "Yes" if q.closed else "No"
+        msg += space("closed", '', '', str(closed), 35) + "\n"
+        msg += "```"
+        embed.add_field(name="Stats", value=msg, inline=False)
+        if q.icon:
+            embed.set_thumbnail(url=q.icon)
+        return embed
+
+    def cat(self):
+        embed = Embed(title="cat.")
+        embed.set_image(url=requests.get("http://theoldreader.com/kittens/600/400").url)
+        return embed
+
+    def dog(self):
+        embed = Embed(title="dog.")
+        embed.set_image(url=requests.get("https://dog.ceo/api/breeds/image/random").json()["message"])
+        return embed
+
+    def calc(self, input):
+        try:
+            response = self.wolfram.query(input)
+            img = next(response.results)["subpod"]["img"]["@src"]
+            return Embed(title="Result").set_image(url=img)
+        except StopIteration or AttributeError:
+            return Embed(title="Result not Found")
+        except:
+            traceback.print_exc()
+            return Embed(title="error :(", description="please try again later")
